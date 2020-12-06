@@ -1,0 +1,85 @@
+#! /bin/sh
+#
+# qucsdigi - wrapper script for digital simulation
+#
+# Copyright (C) 2020 Christian Strauch (flinti) <git@flinti.de> (modified for use with ghdl)
+# Copyright (C) 2005 Michael Margraf <michael.margraf@alumni.tu-berlin.de>
+# Copyright (C) 2005, 2006, 2008, 2009 Stefan Jahn <stefan@lkcc.org>
+# Copyright (C) 2005 Raimund Jacob <raimi@lkcc.org>
+#
+# This is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+# 
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this package; see the file COPYING.  If not, write to
+# the Free Software Foundation, Inc., 51 Franklin Street - Fifth Floor,
+# Boston, MA 02110-1301, USA.  
+#
+
+# Bail out on any error
+set -e
+
+# catch termination signal and kill all child processes
+#trap 'kill 0; exit 0' SIGTERM
+
+if [ "$#" != 6 ]; then
+    if [ "$#" != 7 ]; then
+        echo "Usage: $0 <netlist.txt> <output.dat> <time> <directory> <bindirectory> <vlibs> [<convoption>]"
+        echo "Directory has to contain the file 'netlist.txt'."
+        exit 1
+    fi
+    OPTION=$7
+fi
+
+NAME=$1
+NAMEOUT=$2
+TIME=$3
+DIR=$4
+BINDIR=$5
+VLIBS=$6
+
+if [ ! -d "$DIR" ]; then
+    echo "$DIR: Not a directory"
+    exit 1
+fi
+
+cd $DIR
+
+if [ ! -f $NAME ]; then
+    echo "$NAME: No such file"
+    exit 1
+fi
+
+
+cp $NAME digi.vhdl
+NAME="digi"
+
+echo -n "ghdl: Analyze..."
+ghdl -a $NAME.vhdl
+echo " done."
+
+echo -n "ghdl: Elaborate..."
+ghdl -e testbench
+echo " done."
+
+TIME_NOSPACE=$(echo $TIME | tr -d ' ')
+
+echo -n "ghdl: run..."
+./testbench --vcd=$NAME-raw.vcd --stop-time=$TIME_NOSPACE
+wait $!
+echo " done."
+
+echo -n "convert VCD to qucsdata..."
+#ghdl uses U to mean 'undefined' but qucsconv only understands X
+#thus, replace U at the beginning of each line in the .vcd file by X
+sed 's/^U/X/' $NAME-raw.vcd | tee $NAME.vcd >/dev/null
+$BINDIR/qucsconv $OPTION -if vcd -of qucsdata -i $NAME.vcd -o "$NAMEOUT"
+echo " done."
+
